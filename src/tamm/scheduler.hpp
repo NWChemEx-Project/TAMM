@@ -459,7 +459,7 @@ public:
   }
 
   template<typename T>
-  Scheduler& exact_copy(LabeledTensor<T> lhs, LabeledTensor<T> rhs) {
+  Scheduler& exact_copy(LabeledTensor<T> lhs, LabeledTensor<T> rhs, bool do_translate = false) {
     auto copy_buf = [](const Tensor<T>& t, const IndexVector& lhs_iv, std::vector<T>& lhs_buf,
                        const IndexVector rhs_iv[], std::vector<T> rhs_buf[]) {
       std::copy(rhs_buf[0].begin(), rhs_buf[0].end(), lhs_buf.begin());
@@ -468,7 +468,7 @@ public:
     auto rhs_arr = std::array<LabeledTensor<T>, 1>{rhs};
 
     ops_.push_back(std::make_shared<MapOp<LabeledTensor<T>, decltype(copy_buf), 1>>(
-      lhs, copy_buf, rhs_arr, ResultMode::set, false));
+      lhs, copy_buf, rhs_arr, ResultMode::set, do_translate, true));
 
     return *this;
   }

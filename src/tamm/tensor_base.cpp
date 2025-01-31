@@ -41,6 +41,22 @@ TensorBase::TensorBase(const std::vector<TiledIndexSpace>& block_indices) {
 }
 
 /**
+ * @brief
+ */
+TensorBase::TensorBase(const std::vector<TiledIndexSpace>& block_indices,
+                       const NonZeroCheck&                 zero_check) {
+  block_indices_        = block_indices;
+  allocation_status_    = AllocationStatus::invalid;
+  num_modes_            = block_indices.size();
+  updates_              = {};
+  is_non_zero_func_     = zero_check;
+  has_user_is_non_zero_ = true;
+  for(const auto& tis: block_indices_) { EXPECTS(!tis.is_dependent()); }
+  fillin_tlabels();
+  construct_dep_map();
+}
+
+/**
  * @brief Construct a new TensorBase object using a vector of
  * TiledIndexSpace objects for each mode of the tensor
  *

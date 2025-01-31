@@ -133,33 +133,71 @@ public:
     old_tensor.deallocate();
   }
 
-  // /// @brief
-  // /// @param sbuf
-  // /// @param block_dims
-  // /// @param block_offset
-  // /// @param copy_to_local
-  // void patch_copy_local(std::vector<T>& sbuf, const std::vector<size_t>& block_dims,
-  //                       const std::vector<size_t>& block_offset, bool copy_to_local) {
-  //   auto num_dims = local_tensor_.num_modes();
-  //   // Compute the total number of elements to copy
-  //   size_t total_elements = 1;
-  //   for(size_t dim: block_dims) { total_elements *= dim; }
+  /**
+   * @brief Method for filling the local tensor data with the original distributed tensor. We first
+   * construct a loop nest and to a get on all blocks that are then written to the corresponding
+   * place in the new local tensor
+   *
+   * @param dist_tensor Distributed source tensor to copy
+   */
+  void from_distributed_tensor(const Tensor<T>& dist_tensor) {
+    for(const auto& blockid: dist_tensor.loop_nest()) {
+      const tamm::TAMM_SIZE size = dist_tensor.block_size(blockid);
+      std::vector<T>        buf(size);
+      dist_tensor.get(blockid, buf);
+      auto block_dims   = dist_tensor.block_dims(blockid);
+      auto block_offset = dist_tensor.block_offsets(blockid);
+      patch_copy_local(buf, block_dims, block_offset, true);
+    }
+  }
 
-  //   // Initialize indices to the starting offset
-  //   std::vector<size_t> indices(block_offset);
+  /**
+   * @brief Method for filling the original distributed tensor data with the local tensor. We first
+   * construct a loop nest and to a get on all blocks that are then written to the corresponding
+   * place in the distributed tensor
+   *
+   * @param dist_tensor Distributed destination tensor to copy to
+   */
+  void to_distributed_tensor(Tensor<T>& dist_tensor) {
+    for(const auto& blockid: dist_tensor.loop_nest()) {
+      const tamm::TAMM_SIZE size = dist_tensor.block_size(blockid);
+      std::vector<T>        buf(size);
+      dist_tensor.get(blockid, buf);
+      auto block_dims   = dist_tensor.block_dims(blockid);
+      auto block_offset = dist_tensor.block_offsets(blockid);
+      patch_copy_local(buf, block_dims, block_offset, false);
+      dist_tensor.put(blockid, buf);
+    }
+  }
 
-  //   for(size_t c = 0; c < total_elements; ++c) {
-  //     // Access the tensor element at the current indices
-  //     if(copy_to_local) (*this)(indices) = sbuf[c];
-  //     else sbuf[c] = (*this)(indices);
+  /// @brief A helper method that copy a block of that to a corresponding patch in the local copy
+  /// @param sbuf Block data that wants to be copied
+  /// @param block_dims Block dimensions to find the accurate location in the linearized local
+  /// tensor
+  /// @param block_offset The offsets of the input data from the original multidimensional tensor
+  void patch_copy_local(std::vector<T>& sbuf, const std::vector<size_t>& block_dims,
+                        const std::vector<size_t>& block_offset, bool copy_to_local) {
+    auto num_dims = this->num_modes();
+    // Compute the total number of elements to copy
+    size_t total_elements = 1;
+    for(size_t dim: block_dims) { total_elements *= dim; }
+    // Initialize indices to the starting offset
+    std::vector<size_t> indices(block_offset);
 
-  //     // Increment indices
-  //     for(int dim = num_dims - 1; dim >= 0; --dim) {
-  //       if(++indices[dim] < block_offset[dim] + block_dims[dim]) { break; }
-  //       indices[dim] = block_offset[dim];
-  //     }
-  //   }
-  // }
+    for(size_t c = 0; c < total_elements; ++c) {
+      size_t linearIndex = compute_linear_index(indices);
+
+      // Access the tensor element at the current indices
+      if(copy_to_local) this->access_local_buf()[linearIndex] = sbuf[c];
+      else sbuf[c] = this->access_local_buf()[linearIndex];
+
+      // Increment indices
+      for(int dim = num_dims - 1; dim >= 0; --dim) {
+        if(++indices[dim] < block_offset[dim] + block_dims[dim]) { break; }
+        indices[dim] = block_offset[dim];
+      }
+    }
+  }
 
   /// @brief  Method for applying the copy operation from a smaller LocalTensor to a bigger
   /// LocalTensor used for re-sizing

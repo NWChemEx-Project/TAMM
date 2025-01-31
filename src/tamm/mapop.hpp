@@ -4,6 +4,7 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
 #include "tamm/boundvec.hpp"
@@ -31,8 +32,8 @@ public:
   using T   = typename LabeledTensorT::element_type;
 
   MapOp(LabeledTensorT& lhs, Func func, RHS& rhs, ResultMode mode = ResultMode::set,
-        bool do_translate = true):
-    lhs_{lhs}, func_{func}, rhs_{rhs}, do_translate_{do_translate} {
+        bool do_translate = true, bool is_exact_copy = false):
+    lhs_{lhs}, func_{func}, rhs_{rhs}, do_translate_{do_translate}, is_exact_copy_{is_exact_copy} {
     fillin_labels();
     validate();
   }
@@ -49,9 +50,15 @@ public:
     using TensorElType = typename LabeledTensorT::element_type;
 
     IndexLabelVec merged_labels{lhs_.labels()};
-    for(const auto& rlt: rhs_) {
-      merged_labels.insert(merged_labels.end(), rlt.labels().begin(), rlt.labels().end());
+    if(is_exact_copy_ && do_translate_) {
+      merged_labels.insert(merged_labels.end(), lhs_.labels().begin(), lhs_.labels().end());
     }
+    else {
+      for(const auto& rlt: rhs_) {
+        merged_labels.insert(merged_labels.end(), rlt.labels().begin(), rlt.labels().end());
+      }
+    }
+
     LabelLoopNest loop_nest{merged_labels};
     auto          lambda_no_translate = [&](const IndexVector& itval) {
       auto        ltensor = lhs_.tensor();
@@ -122,9 +129,42 @@ public:
   bool is_memory_barrier() const { return false; }
 
 protected:
+  // Check if two list of blockids have overlap
+  bool have_overlap(const std::vector<IndexVector>& vec1, const std::vector<IndexVector>& vec2) {
+    // Create an unordered_set with custom hash and equality
+    std::unordered_set<IndexVector, IndexVectorHash, IndexVectorEqual> set(vec1.begin(),
+                                                                           vec1.end());
+    for(const auto& value: vec2) {
+      if(set.count(value)) { // Check if value exists in the set
+        return true;
+      }
+    }
+    return false;
+  }
+
+  std::vector<IndexVector> construct_blockIds(const LabeledTensorT& lt) {
+    std::vector<IndexVector> result;
+
+    auto          lt_lbls = lt.labels();
+    LabelLoopNest loop_nest{lt_lbls};
+
+    for(const auto& blockid: loop_nest) {
+      result.push_back(internal::translate_blockid(blockid, lt));
+    }
+
+    return result;
+  }
+
+  bool have_overlapping_blocks(const LabeledTensorT& lhs, const LabeledTensorT& rhs) {
+    EXPECTS(lhs.tensor().base_ptr() == rhs.tensor().base_ptr());
+
+    return have_overlap(construct_blockIds(lhs), construct_blockIds(rhs));
+  }
+
   void fillin_labels() {
     using internal::fillin_tensor_label_from_map;
     using internal::update_fillin_map;
+
     std::map<std::string, Label> str_to_labels;
     update_fillin_map(str_to_labels, lhs_.str_map(), lhs_.str_labels(), 0);
     size_t off = lhs_.str_labels().size();
@@ -140,10 +180,12 @@ protected:
   void validate() {
     for(auto& rhs: rhs_) {
       if(lhs_.tensor().base_ptr() == rhs.tensor().base_ptr()) {
-        std::ostringstream os;
-        os << "[TAMM ERROR] Self assignment is not supported in tensor operations!\n"
-           << __FILE__ << ":L" << __LINE__;
-        tamm_terminate(os.str());
+        if(have_overlapping_blocks(lhs_, rhs)) {
+          std::ostringstream os;
+          os << "[TAMM ERROR] Self assignment is not supported in tensor operations!\n"
+             << __FILE__ << ":L" << __LINE__;
+          tamm_terminate(os.str());
+        }
       }
     }
 
@@ -180,6 +222,7 @@ protected:
   Func                          func_;
   std::array<LabeledTensorT, N> rhs_;
   bool                          do_translate_;
+  bool                          is_exact_copy_;
 
 public:
   std::string opstr_;

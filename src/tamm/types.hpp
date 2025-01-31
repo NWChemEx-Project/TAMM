@@ -377,4 +377,18 @@ using SymbolTable = std::map<void*, std::string>;
 
 using TranslateFunc = std::function<Index(Index id)>;
 
+// Custom hash function for IndexVector/BlockId
+struct IndexVectorHash {
+  std::size_t operator()(const IndexVector& vec) const {
+    std::size_t seed = vec.size();
+    for(Index v: vec) { internal::hash_combine(seed, v); }
+    return seed;
+  }
+};
+
+// Custom equality function for IndexVector/BlockId
+struct IndexVectorEqual {
+  bool operator()(const IndexVector& lhs, const IndexVector& rhs) const { return lhs == rhs; }
+};
+
 } // namespace tamm

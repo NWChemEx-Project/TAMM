@@ -178,6 +178,17 @@ public:
   }
 
   /**
+   * @brief Construct a new TensorImpl object using the specialized non-zero check function
+   *
+   * @param t_spaces
+   * @param zero_check
+   */
+  TensorImpl(const TiledIndexSpaceVec& t_spaces, const NonZeroCheck& zero_check):
+    TensorBase(t_spaces, zero_check) {
+    kind_ = TensorBase::TensorKind::block_sparse;
+  }
+
+  /**
    * @brief Construct a new SpinTensorImpl object using set of TiledIndexLabel
    * objects and Spin attribute mask
    *

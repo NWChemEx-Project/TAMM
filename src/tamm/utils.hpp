@@ -285,6 +285,27 @@ IndexVector translate_blockid(const IndexVector& blockid, const LabeledTensorT& 
   return translate_blockid;
 }
 
+inline IndexVector translate_blockid_with_labels(const IndexVector&        from_blockid,
+                                                 const IndexLabelVec&      from_labels,
+                                                 const TiledIndexSpaceVec& to_tis) {
+  EXPECTS(from_blockid.size() == from_labels.size());
+  EXPECTS(from_labels.size() == to_tis.size());
+
+  IndexVector translated_blockid;
+  for(size_t i = 0; i < from_blockid.size(); i++) {
+    const auto& from_tis = from_labels[i].tiled_index_space();
+    Index       val      = from_tis.translate(from_blockid[i], to_tis[i]);
+    translated_blockid.push_back(val);
+  }
+  return translated_blockid;
+}
+
+inline void print_blockid(const IndexVector& blockid, const std::string& name = "blockid") {
+  std::cout << name << ": ";
+  for(auto i: blockid) std::cout << i << " ";
+  std::cout << std::endl;
+};
+
 template<typename Iter>
 inline std::string join(Iter begin, Iter end, const std::string& sep) {
   std::ostringstream oss;

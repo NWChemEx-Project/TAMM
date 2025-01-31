@@ -1072,9 +1072,11 @@ void set_val_ip(Tensor<TensorType> tensor, TensorType alpha) {
 }
 
 template<typename TensorType>
-void random_ip(LabeledTensor<TensorType> ltensor) {
+void random_ip(LabeledTensor<TensorType> ltensor, unsigned int seed = 0) {
   std::mt19937                           generator(get_ec(ltensor).pg().rank().value());
   std::uniform_real_distribution<double> tensor_rand_dist(0.0, 1.0);
+
+  if(seed > 0) { generator.seed(seed); }
 
   if constexpr(!tamm::internal::is_complex_v<TensorType>) {
     std::function<TensorType(TensorType)> func = [&](TensorType a) {
@@ -1091,8 +1093,8 @@ void random_ip(LabeledTensor<TensorType> ltensor) {
 }
 
 template<typename TensorType>
-void random_ip(Tensor<TensorType> tensor) {
-  random_ip(tensor());
+void random_ip(Tensor<TensorType> tensor, unsigned int seed = 0) {
+  random_ip(tensor(), seed);
 }
 
 template<typename TensorType>

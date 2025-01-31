@@ -208,6 +208,26 @@ private:
     for(const auto& lbl: ilv_) {
       for(const auto& dlbl: lbl.secondary_labels()) { EXPECTS(lbl.primary_label() != dlbl); }
     }
+
+    auto tensor_base = tensor_.base_ptr();
+    EXPECTS(tensor_base != nullptr);
+
+    if(tensor_base->kind() == TensorBase::TensorKind::block_sparse) {
+      bool          has_non_zero = false;
+      LabelLoopNest loop_nest{ilv_};
+
+      for(const auto& blockid: loop_nest) {
+        auto translated_blockid =
+          internal::translate_blockid_with_labels(blockid, ilv_, tensor_.tiled_index_spaces());
+
+        if(tensor_base->is_non_zero(translated_blockid)) {
+          has_non_zero = true;
+          break;
+        }
+      }
+      EXPECTS_STR(has_non_zero, "Labeled tensor should be constructed over an allowed block!");
+    }
+
   } // validate
 
   void unpack(size_t index) {

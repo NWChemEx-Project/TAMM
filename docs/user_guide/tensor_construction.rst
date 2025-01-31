@@ -388,6 +388,7 @@ Different than the default tensor constructors, users can choose to use size val
 to construct correspond tensors. 
 
 .. code:: cpp
+
    // Tensor<T> B{tis1, tis1};
    // Local tensor construction using TiledIndexSpaces
    LocalTensor<T> local_A{tis1, tis1, tis1};
@@ -400,11 +401,12 @@ to construct correspond tensors.
    LocalTensor<T> local_E{10, 10, 10};
 
 Similar to general tensor objects in TAMM, ``LocalTensor`` objects have to be allocated.
-While allocation/deallcoation calls are the same with general Tensor constructs, users 
+While allocation/deallocation calls are the same with general Tensor constructs, users 
 have to use an ``ExecutionContext`` object with ``LocalMemoryManager``. Below is an 
 example of how the allocation for these tensors looks like
 
 .. code:: cpp
+
    // Execution context with LocalMemoryManager
    ExecutionContext local_ec{sch.ec().pg(), DistributionKind::nw, MemoryManagerKind::local};
    // Scheduler constructed with the new local_ec
@@ -469,10 +471,170 @@ enabling element access via index location.
          }
       }
    }
-
+   
 The examples above illustrate element-wise operations. Users can perform scheduler-based 
 operations with the local scheduler or define element-wise updates using loops.
 
+`LocalTensor` object also allows copying from or to a distributed tensor object. This is
+particularly useful in situations where users need a local copy of distributed
+tensors to apply element-wise updates. Below is an example usage of this scenario:
+
+.. code-block:: cpp
+
+   // Distributed tensor constructor
+   Tensor<T> dist_A{tN, tN, tN}; 
+   // ... 
+  
+   // Local tensor construction
+   LocalTensor<T> local_A{dist_A.tiled_index_spaces()};
+
+   sch_local.allocate(local_A)
+   .execute();
+
+   // Copy from distributed tensor
+   local_A.from_distributed_tensor(dist_A);
+
+   // Apply updates
+   sch_local
+   (local_A() = 21.0)
+   .execute();
+
+   // Copy back to distributed tensor
+   local_A.to_distributed_tensor(dist_A);
+
+
+Block Sparse Tensor Construction
+--------------------------------
+
+TAMM supports the construction of general block sparse tensors using underlying 
+`TiledIndexSpace` constructs. Users can specify non-zero blocks by providing a 
+lambda function that replaces the block-wise `is_non_zero` check, which is internally 
+called for each block operation (e.g., allocation, element-wise operations, 
+tensor operations). This approach allows for efficient allocation of only non-zero 
+blocks and optimized tensor operations on these portions.
+
+The following code demonstrates how to define a custom lambda function to check 
+for block sparsity and construct a block sparse tensor:
+
+.. code-block:: cpp
+
+   // List of index spaces for the tensor construction
+   TiledIndexSpaceVec t_spaces{SpinTIS, SpinTIS};
+   // Spin mask for the dimensions
+   std::vector<SpinPosition> spin_mask_2D{SpinPosition::lower, SpinPosition::upper};
+
+   // Custom lambda function for the is_non_zero check
+   auto is_non_zero_2D = [t_spaces, spin_mask_2D](const IndexVector& blockid) -> bool {
+       Spin upper_total = 0, lower_total = 0, other_total = 0;
+       for (size_t i = 0; i < 2; i++) {
+           const auto& tis = t_spaces[i];
+           if (spin_mask_2D[i] == SpinPosition::upper) {
+               upper_total += tis.spin(blockid[i]);
+           } else if (spin_mask_2D[i] == SpinPosition::lower) {
+               lower_total += tis.spin(blockid[i]);
+           } else {
+               other_total += tis.spin(blockid[i]);
+           }
+       }
+
+       return (upper_total == lower_total);
+   };
+
+   // TensorInfo construction
+   TensorInfo tensor_info{t_spaces, is_non_zero_2D};
+
+   // Tensor constructor
+   Tensor<T> tensor{t_spaces, tensor_info};
+
+TAMM offers a more convenient `TensorInfo` struct to describe non-zero blocks 
+using stringed sub-space constructs in `TiledIndexSpace`s. This simplifies the 
+process of constructing block sparse tensors.
+
+Here's an example of using `TensorInfo`:
+
+.. code-block:: cpp
+
+   // Map labels to corresponding sub-space strings
+   Char2TISMap char2MOstr = {{'i', "occ"}, {'j', "occ"}, {'k', "occ"}, {'l', "occ"},
+                             {'a', "virt"}, {'b', "virt"}, {'c', "virt"}, {'d', "virt"}};
+
+   // Construct TensorInfo
+   TensorInfo tensor_info{
+       {MO, MO, MO, MO},                                 // Tensor dimensions
+       {"ijab", "iajb", "ijka", "ijkl", "iabc", "abcd"}, // Allowed blocks
+       char2MOstr                                        // Character to sub-space string mapping
+       // ,{"abij", "aibj"} // Disallowed blocks (optional)
+   };
+
+   // Block Sparse Tensor construction
+   Tensor<T> tensor{{MO, MO, MO, MO}, tensor_info};
+
+TAMM also provides a simplified constructor that only requires a list of allowed 
+blocks and the character-to-sub-space string map:
+
+.. code-block:: cpp
+
+   // Block Sparse Tensor construction using allowed blocks
+   Tensor<T> tensor{{MO, MO, MO, MO}, {"ijab", "ijka", "iajb"}, char2MOstr};
+
+Block Sparse `Tensor` inherits from general TAMM tensor constructs, enabling the application
+of standard tensor operations to block sparse tensors. Users can employ labels over the entire 
+`TiledIndexSpace` for general computations or use sub-space labels to access specific blocks.
+
+The following code illustrates how to allocate, set values, and perform operations on different 
+blocks of block sparse tensors:
+
+.. code-block:: cpp
+
+   // Construct Block Sparse Tensors with different allowed blocks
+   Tensor<T> tensorA{{MO, MO, MO, MO}, {"ijab", "ijkl"}, char2MOstr};
+   Tensor<T> tensorB{{MO, MO, MO, MO}, {"ijka", "iajb"}, char2MOstr};
+   Tensor<T> tensorC{{MO, MO, MO, MO}, {"iabc", "abcd"}, char2MOstr};
+
+   // Allocate and set values
+   sch.allocate(tensorA, tensorB, tensorC)
+       (tensorA() = 2.0)
+       (tensorB() = 4.0)
+       (tensorC() = 0.0)
+   .execute();
+
+   // Use different blocks to update output tensor
+   // a, b, c, d: MO virtual space labels
+   // i, j, k, l: MO virtual space labels
+   sch
+       (tensorC(a, b, c, d) += tensorA(i, j, a, b) * tensorB(j, c, i, d))
+       (tensorC(i, a, b, c) += 0.5 * tensorA(j, k, a, b) * tensorB(i, j, k, c))
+   .execute();
+
+   // De-allocate tensors
+   tensorA.deallocate();
+   tensorB.deallocate();
+   tensorC.deallocate();
+
+TAMM also provides block sparse constructors similar to the general tensor construction 
+by allowing use of TiledIndexLabels, TiledIndexSpaces, and strings corresponding to the 
+sub-space names in TiledIndexSpaces for representing only the allowed blocks. With these 
+constructors users don't have to provide a mapping from char to corresponding sub-space 
+names as they are provided explicitly. Below code shows the use of this constructions, 
+similar to previous case block sparse tensors constructed using these methods can be 
+directly used in any tensor operations for general tensors:
+
+.. code-block:: cpp
+
+   // Construct Block Sparse Tensors with different allowed blocks
+   // Using TiledIndexLabels for allowed blocks 
+   Tensor<T> tensorA{{MO, MO, MO, MO}, {{i, j, a, b}, {i, j, k, l}}}; 
+   // Using TiledIndexSpaces for allowed blocks
+   TiledIndexSpace Occ = MO("occ");
+   TiledIndexSpace Virt = MO("virt");
+   Tensor<T> tensorB{{MO, MO, MO, MO}, 
+               {TiledIndexSpaceVec{Occ, Occ, Occ, Occ}, 
+                TiledIndexSpaceVec{Occ, Virt, Occ, Virt}}};
+   // Using list of comma seperated strings representing sub-space names
+   Tensor<T> tensorC{{MO, MO, MO, MO}, {{"occ, virt, virt, virt"}, 
+                                        {"virt, virt, virt, virt"}}};
+
+   // ...
 
 Example Tensor Constructions
 ----------------------------

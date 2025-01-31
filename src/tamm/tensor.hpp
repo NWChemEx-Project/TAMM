@@ -2,6 +2,7 @@
 
 #include "tamm/symbol.hpp"
 #include "tamm/tensor_impl.hpp"
+#include "tamm/tensor_info.hpp"
 
 namespace tamm {
 
@@ -114,6 +115,53 @@ public:
    */
   Tensor(TiledIndexSpaceVec t_spaces, std::vector<size_t> spin_sizes):
     impl_{std::make_shared<TensorImpl<T>>(t_spaces, spin_sizes)} {}
+
+  /**
+   * @brief Construct a new (Block Sparse) Tensor object
+   *
+   * @param t_spaces list of TiledIndexSpace for constructing the tensors
+   * @param tensor_info TensorInfo object representing the sparsity
+   */
+  Tensor(const TiledIndexSpaceVec& t_spaces, const TensorInfo& tensor_info):
+    impl_{std::make_shared<TensorImpl<T>>(t_spaces, tensor_info.construct_is_non_zero_check())} {}
+
+  /**
+   * @brief Construct a new Block Sparse Tensor object
+   *
+   * @param t_spaces list of TiledIndexSpace for constructing the tensor
+   * @param allowed_blocks list of strings that represents the allowed blocks
+   * @param char_to_tis_map map of indices to sub-TIS names
+   */
+  Tensor(TiledIndexSpaceVec t_spaces, const std::vector<std::string>& allowed_blocks,
+         const Char2TISMap& char_to_tis_map):
+    Tensor<T>(t_spaces, {t_spaces, allowed_blocks, char_to_tis_map}) {}
+
+  /**
+   * @brief Construct a new Block Sparse Tensor object
+   *
+   * @param t_spaces list of TiledIndexSpace for constructing the tensor
+   * @param allowed_blocks list of strings that represents the allowed sub_spaces
+   */
+  Tensor(TiledIndexSpaceVec t_spaces, const std::vector<std::string>& allowed_sub_tis_list):
+    Tensor<T>(t_spaces, {t_spaces, allowed_sub_tis_list}) {}
+
+  /**
+   * @brief Construct a new Block Sparse Tensor object
+   *
+   * @param t_spaces list of TiledIndexSpace for constructing the tensor
+   * @param allowed_tis_list list of TiledIndexSpaces that represents the allowed sub_spaces
+   */
+  Tensor(TiledIndexSpaceVec t_spaces, const std::vector<TiledIndexSpaceVec>& allowed_tis_list):
+    Tensor<T>(t_spaces, {t_spaces, allowed_tis_list}) {}
+
+  /**
+   * @brief Construct a new Block Sparse Tensor object
+   *
+   * @param t_spaces list of TiledIndexSpace for constructing the tensor
+   * @param allowed_til_list list of TiledIndexLabels that represents the allowed sub_spaces
+   */
+  Tensor(TiledIndexSpaceVec t_spaces, const std::vector<IndexLabelVec>& allowed_til_list):
+    Tensor<T>(t_spaces, {t_spaces, allowed_til_list}) {}
 
   /**
    * @brief Construct a new Tensor object with Spin attributes

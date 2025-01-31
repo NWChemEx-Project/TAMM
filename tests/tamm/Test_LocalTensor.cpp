@@ -189,6 +189,53 @@ void test_local_tensor_accessor(ExecutionContext& ec, size_t N) {
 }
 
 template<typename T>
+void test_local_tensor_copy(ExecutionContext& ec, size_t N, Tile tilesize) {
+  ExecutionContext local_ec{ec.pg(), DistributionKind::nw, MemoryManagerKind::local};
+  Scheduler        sch_local{local_ec};
+
+  Scheduler       sch_dist{ec};
+  TiledIndexSpace tN{IndexSpace{range(N)}, tilesize};
+
+  Tensor<T> dist_A{tN, tN, tN};
+  // clang-format off
+  sch_dist.allocate(dist_A)
+  (dist_A() = 42.0)
+  .execute();
+  // clang-format on
+
+  LocalTensor<T> local_A{dist_A.tiled_index_spaces()};
+  // Copy from distrubuted tensor
+
+  // clang-format off
+  sch_local.allocate(local_A)
+  (local_A() = 1.0)
+  .execute();
+  // clang-format on
+
+  std::cout << "local_A before from_distributed_tensor" << std::endl;
+  print_tensor(local_A);
+
+  local_A.from_distributed_tensor(dist_A);
+
+  std::cout << "local_A after from_distributed_tensor" << std::endl;
+  print_tensor(local_A);
+
+  // Copy to distributed tensor
+
+  // clang-format off
+  sch_local
+  (local_A() = 21.0)
+  .execute();
+  // clang-format on
+
+  local_A.to_distributed_tensor(dist_A);
+
+  std::cout << "dist_A after to_distributed_tensor" << std::endl;
+
+  if(ec.print()) print_tensor(dist_A);
+}
+
+template<typename T>
 void test_local_tensor(Scheduler& sch, size_t N, Tile tilesize) {
   TiledIndexSpace tis1{IndexSpace{range(N)}, tilesize};
 
@@ -274,6 +321,7 @@ int main(int argc, char* argv[]) {
 
   // test_local_tensor<double>(sch, is_size, tile_size);
   test_local_tensor_constructors<double>(sch, is_size, tile_size);
+  test_local_tensor_copy<double>(ec, is_size, tile_size);
   test_local_tensor_block<double>(ec, is_size);
   test_local_tensor_resize<double>(ec, is_size);
   test_local_tensor_accessor<double>(ec, is_size);

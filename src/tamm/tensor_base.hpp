@@ -13,6 +13,8 @@
 
 namespace tamm {
 
+using NonZeroCheck = std::function<bool(const IndexVector&)>;
+
 class ExecutionContext;
 
 namespace new_ops {
@@ -55,7 +57,7 @@ struct TensorUpdate {
 
 class TensorBase {
 public:
-  enum class TensorKind { invalid, spin, dense, lambda, normal, view, unit_view };
+  enum class TensorKind { invalid, spin, dense, lambda, normal, view, unit_view, block_sparse };
 
   // Ctors
   TensorBase() = default;
@@ -85,6 +87,11 @@ public:
    * tensor
    */
   TensorBase(const std::vector<TiledIndexLabel>& lbls);
+
+  /// @brief
+  /// @param block_indices
+  /// @param zero_check
+  TensorBase(const std::vector<TiledIndexSpace>& block_indices, const NonZeroCheck& zero_check);
 
   /**
    * @brief Construct a new TensorBase object recursively with a set of
@@ -241,6 +248,7 @@ public:
   }
 
   bool is_non_zero(const IndexVector& blockid) const {
+    if(has_user_is_non_zero_) { return is_non_zero_func_(blockid); }
     if(!has_spin()) { return true; }
 
     EXPECTS(blockid.size() == num_modes());
@@ -329,6 +337,9 @@ protected:
   bool                         has_spatial_symmetry_ = false;
   bool                         has_spin_symmetry_    = false;
   AllocationStatus             allocation_status_;
+
+  NonZeroCheck is_non_zero_func_;
+  bool         has_user_is_non_zero_ = false;
 
   TensorRank num_modes_;
   /// When a tensor is constructed using Tiled Index Labels that correspond to
